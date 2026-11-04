@@ -80,6 +80,9 @@ body{background-image:radial-gradient(circle at 10% -5%,rgba(20,184,166,.30),tra
 .sum div{border:1px solid var(--line)}
 .fab{background:linear-gradient(135deg,#0f766e,#14b8a6);color:#fff}
 .bar i{background:linear-gradient(90deg,#0f766e,#34d399)}
+.seg{display:flex;gap:6px;background:var(--line);border-radius:12px;padding:4px}
+.seg button{flex:1;border:0;background:transparent;color:var(--muted);font:inherit;font-weight:600;font-size:14px;padding:10px 4px;border-radius:9px}
+.seg button.on{background:var(--card);color:var(--text);box-shadow:var(--shadow)}
 </style>
 </head>
 <body>
@@ -159,8 +162,8 @@ function render(){
   renderAlerts();
   $("list").innerHTML=act.length?act.map(b=>{
     const[k,l]=status(b,month),n=mIdx(month)-mIdx(b.start)+1;
-    const ang=b.months?`Cicilan ${n}/${b.months}`:"Rutin bulanan";
-    return `<button class="item" data-id="${b.id}"><div class="m"><div class="n">${esc(b.name)}</div><div class="s">Jatuh tempo tgl ${b.due} · ${ang}</div></div><div class="r"><strong>${rp(b.amount)}</strong><br><span class="badge b-${k}">${l}</span></div></button>`}).join("")
+    const ang=b.once?"Sekali bayar":b.months?`Cicilan ${n}/${b.months}`:"Rutin bulanan";
+    return `<button class="item" data-id="${b.id}"><div class="m"><div class="n">${esc(b.name)}</div><div class="s">${b.once?"Jatuh tempo "+fdate(b.date):"Jatuh tempo tgl "+b.due} · ${ang}</div></div><div class="r"><strong>${rp(b.amount)}</strong><br><span class="badge b-${k}">${l}</span></div></button>`}).join("")
     :`<div class="empty"><div style="font-size:44px">🧾</div>Belum ada tagihan di bulan ini.<br>Tekan <b>＋ Tagihan</b> untuk menambah.</div>`;
 }
 $("list").onclick=e=>{const b=e.target.closest(".item");if(b)openDetail(b.dataset.id)};
@@ -178,20 +181,39 @@ const proofSrc=p=>p.proofId?"/_blob/"+p.proofId:(p.proofData||"");
 
 function openForm(b){
   b=b||{};
+  let once=!!b.once;
+  const od=b.date||today();
   openSheet(`<h2>${b.id?"Ubah":"Tambah"} Tagihan</h2>
-  <label>Nama tagihan / cicilan</label><input id="fName" placeholder="mis. Cicilan motor, Listrik" value="${esc(b.name||"")}">
-  <label>Jumlah per bulan (Rp)</label><input id="fAmt" type="number" inputmode="numeric" placeholder="0" value="${b.amount||""}">
-  <div class="row"><div><label>Jatuh tempo (tanggal)</label><input id="fDue" type="number" inputmode="numeric" min="1" max="31" value="${b.due||""}"></div>
-  <div><label>Mulai bulan</label><input id="fStart" type="month" value="${b.start||month}"></div></div>
-  <label>Lama cicilan (bulan) — kosongkan jika rutin tanpa batas</label><input id="fMon" type="number" inputmode="numeric" min="1" value="${b.months||""}">
+  <div class="seg"><button type="button" id="kRep">🔁 Rutin / cicilan</button><button type="button" id="kOnce">1️⃣ Sekali bayar</button></div>
+  <label>Nama tagihan</label><input id="fName" placeholder="mis. Pajak motor, Servis AC, Cicilan motor" value="${esc(b.name||"")}">
+  <label id="lAmt">Jumlah per bulan (Rp)</label><input id="fAmt" type="number" inputmode="numeric" placeholder="0" value="${b.amount||""}">
+  <div id="gRep"><div class="row"><div><label>Jatuh tempo (tanggal)</label><input id="fDue" type="number" inputmode="numeric" min="1" max="31" value="${b.once?"":(b.due||"")}"></div>
+  <div><label>Mulai bulan</label><input id="fStart" type="month" value="${b.once?month:(b.start||month)}"></div></div>
+  <label>Lama cicilan (bulan) — kosongkan jika rutin tanpa batas</label><input id="fMon" type="number" inputmode="numeric" min="1" value="${b.once?"":(b.months||"")}"></div>
+  <div id="gOnce"><label>Tanggal jatuh tempo</label><input id="fDate" type="date" value="${od}"></div>
   <label>Catatan (opsional)</label><textarea id="fNote" rows="2">${esc(b.note||"")}</textarea>
   <button class="btn" id="fSave">Simpan</button><button class="btn sec" id="fCancel">Batal</button>`);
+  const sync=()=>{
+    $("kRep").classList.toggle("on",!once);$("kOnce").classList.toggle("on",once);
+    $("gRep").style.display=once?"none":"block";$("gOnce").style.display=once?"block":"none";
+    $("lAmt").textContent=once?"Jumlah tagihan (Rp)":"Jumlah per bulan (Rp)";
+  };
+  $("kRep").onclick=()=>{once=false;sync()};$("kOnce").onclick=()=>{once=true;sync()};sync();
   $("fCancel").onclick=closeSheet;
   $("fSave").onclick=async()=>{
-    const name=$("fName").value.trim(),amount=+$("fAmt").value,due=+$("fDue").value,start=$("fStart").value,months=+$("fMon").value||0;
-    if(!name||!(amount>0)||!(due>=1&&due<=31)||!start){toast("Lengkapi nama, jumlah, tanggal, dan bulan mulai");return}
+    const name=$("fName").value.trim(),amount=+$("fAmt").value,note=$("fNote").value.trim();
+    let rec;
+    if(once){
+      const date=$("fDate").value;
+      if(!name||!(amount>0)||!date){toast("Lengkapi nama, jumlah, dan tanggal jatuh tempo");return}
+      rec={t:"bill",name,amount,due:+date.slice(8,10),start:date.slice(0,7),months:1,once:true,date,note};
+    }else{
+      const due=+$("fDue").value,start=$("fStart").value,months=+$("fMon").value||0;
+      if(!name||!(amount>0)||!(due>=1&&due<=31)||!start){toast("Lengkapi nama, jumlah, tanggal, dan bulan mulai");return}
+      rec={t:"bill",name,amount,due,start,months,once:false,note};
+    }
     const id=b.id||"b_"+Date.now().toString(36);
-    if(await put(id,{t:"bill",name,amount,due,start,months,note:$("fNote").value.trim()})){closeSheet();toast("Tersimpan")}
+    if(await put(id,rec)){if(rec.once)month=rec.start;closeSheet();render();toast("Tersimpan")}
   };
 }
 
@@ -206,7 +228,7 @@ function openDetail(id){
     ${src?`<div style="margin-top:10px"><img class="thumb" src="${esc(src)}" id="pThumb" alt="Bukti"> <button class="link" id="pView">Lihat bukti</button></div>`:`<div class="s" style="color:var(--muted);margin-top:8px">Tanpa bukti pembayaran</div>`}
     <button class="btn sec" id="pUndo">Batalkan pembayaran</button></div>`;
   }else{
-    pay=`<div class="box"><b>Bayar tagihan ${mName(month)}</b>
+    pay=`<div class="box"><b>${b.once?"Bayar tagihan":"Bayar tagihan "+mName(month)}</b>
     <div class="row"><div><label>Tanggal bayar</label><input id="pDate" type="date" value="${today()}"></div>
     <div><label>Jumlah (Rp)</label><input id="pAmt" type="number" inputmode="numeric" value="${b.amount}"></div></div>
     <label>Bukti pembayaran (foto / screenshot)</label>
@@ -215,7 +237,7 @@ function openDetail(id){
     <button class="btn" id="pSave">✓ Tandai lunas</button></div>`;
   }
   openSheet(`<h2>${esc(b.name)}</h2>
-  <div class="s" style="color:var(--muted)">${rp(b.amount)}/bulan · tgl ${b.due} · ${b.months?`cicilan ${n}/${b.months}`:"rutin"}${b.note?`<br>${esc(b.note)}`:""}</div>
+  <div class="s" style="color:var(--muted)">${b.once?`${rp(b.amount)} · sekali bayar · jatuh tempo ${fdate(b.date)}`:`${rp(b.amount)}/bulan · tgl ${b.due} · ${b.months?`cicilan ${n}/${b.months}`:"rutin"}`}${b.note?`<br>${esc(b.note)}`:""}</div>
   ${pay}
   ${hist.length?`<div class="box"><b>Riwayat pembayaran</b>${hist.map(h=>`<div class="hist"><span>${mName(h.month)}<br><small style="color:var(--muted)">${fdate(h.date)} · ${rp(h.amount)}</small></span>${proofSrc(h)?`<button class="link" data-src="${esc(proofSrc(h))}">Bukti</button>`:"<small style=\"color:var(--muted)\">–</small>"}</div>`).join("")}</div>`:""}
   <div class="row"><button class="btn sec" id="dEdit">Ubah</button><button class="btn del" id="dDel">Hapus</button></div>
@@ -301,7 +323,7 @@ function openReport(){
   const data=ms.map(m=>({m,t:bills().filter(b=>activeIn(b,m)).reduce((s,b)=>s+ +b.amount,0),p:all.filter(x=>x.t==="pay"&&x.month===m).reduce((s,x)=>s+ +x.amount,0)}));
   const mx=Math.max(1,...data.map(d=>Math.max(d.t,d.p)));
   const yr=month.slice(0,4),yTot=all.filter(x=>x.t==="pay"&&x.month.startsWith(yr)).reduce((s,x)=>s+ +x.amount,0);
-  const cic=bills().filter(b=>b.months).map(b=>{const n=all.filter(x=>x.t==="pay"&&x.bill===b.id).length,sisa=Math.max(0,b.months-n);return{b,n,sisa,rp:sisa*b.amount}});
+  const cic=bills().filter(b=>b.months&&!b.once).map(b=>{const n=all.filter(x=>x.t==="pay"&&x.bill===b.id).length,sisa=Math.max(0,b.months-n);return{b,n,sisa,rp:sisa*b.amount}});
   const sisaAll=cic.reduce((s,c)=>s+c.rp,0);
   openSheet(`<h2>📊 Laporan</h2>
   <div class="box"><b>Pembayaran 6 bulan terakhir</b>
@@ -361,7 +383,7 @@ function clean(d){
   if(d.t==="bill"){
     const amount=+d.amount,due=+d.due;
     if(!(amount>0)||!(due>=1&&due<=31)||!ymr.test(d.start))return null;
-    return{t:"bill",name:String(d.name||"").slice(0,100),amount,due,start:d.start,months:+d.months||0,note:String(d.note||"").slice(0,300)};
+    return{t:"bill",name:String(d.name||"").slice(0,100),amount,due,start:d.start,months:+d.months||0,once:!!d.once,date:/^\d{4}-\d{2}-\d{2}$/.test(d.date||"")?d.date:"",note:String(d.note||"").slice(0,300)};
   }
   if(!idr.test(d.bill||"")||!ymr.test(d.month)||!(+d.amount>0)||!/^\d{4}-\d{2}-\d{2}$/.test(d.date))return null;
   const r={t:"pay",bill:d.bill,month:d.month,date:d.date,amount:+d.amount};
